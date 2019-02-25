@@ -61,12 +61,28 @@ VaribankFileMaker {
 				if (File.exists(pathName2.fullPath), {File.delete(pathName2.fullPath)});
 				file = File(pathName2.fullPath, "w");
 
+				if (offset != 0.0,
+					{
+						content = "0.0";
+
+						(fftSizeOver2-1).do
+						{
+							arg i;
+							content = content + (i+1*44100/fftSize).asString;
+							content = content + "-infdB";
+
+						};
+						file.write(content);
+						content = "\n";
+					}
+				);
 
 				fftBuffer = Buffer.alloc(Server.default,fftSize,1);
 
 				theFFT = { var input, chain;
 					input = PlayBuf.ar(buffer.numChannels, buffer, BufRateScale.kr(buffer));
 					chain = FFT(fftBuffer, input, hop: hop, wintype: 0, winsize: fftSizeOver2);
+					//chain = PV_MagSquared(chain);
 				}.play;
 
 				theWriter = Routine {
@@ -98,10 +114,12 @@ VaribankFileMaker {
 									arg item, index;
 									var ampInDB = item.ampdb;
 									var threshold = -60;
+
 									if ( ampInDB < threshold,
 										{ampInDB = -inf},
 										{ampInDB = ampInDB + 20}
 									);
+
 									content = content + (index+1*44100/fftSize).asString;
 									content = content + ampInDB ++ "dB";
 								};
@@ -139,7 +157,7 @@ VaribankFileMaker {
 						if (pathName3.extension == "wav",
 							{
 								var fileName;
-								var command = "cd" + pathName3.pathOnly ++ "; filter varibank 1" + pathName3.fileName;
+								var command = "cd" + pathName3.pathOnly.escapeChar($ ) ++ "; filter varibank 1" + pathName3.fileName;
 
 								postln(pathName3.fileName + "was selected (to be filtered)");
 
@@ -151,7 +169,7 @@ VaribankFileMaker {
 								pathName4 = PathName.new(pathName3.pathOnly ++ fileName ++ ".wav");
 								if (File.exists(pathName4.fullPath), {File.delete(pathName4.fullPath)});
 
-								command = command + pathName4.fileName + pathName2.fullPath + quality + volume;
+								command = command + pathName4.fileName + pathName2.fullPath.escapeChar($ ) + quality + volume;
 								command.runInTerminal;
 							},
 							{pathName3 = nil; postln( "Please select a (.wav) soundfile next time" )}
