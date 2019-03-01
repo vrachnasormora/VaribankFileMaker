@@ -42,7 +42,7 @@ VaribankFileMaker {
 				var fftSize = 2048;
 				var fftSizeOver2 = (fftSize/2).asInt;
 				var hop = 1/4;
-				var rate = 2*fftSize/44100;
+				var rate = 2*fftSize/buffer.sampleRate;
 				var step = offset;
 				var content = "";
 				var magnitudes;
@@ -68,7 +68,7 @@ VaribankFileMaker {
 						(fftSizeOver2-1).do
 						{
 							arg i;
-							content = content + (i+1*44100/fftSize).asString;
+							content = content + (i+1*buffer.sampleRate/fftSize).asString;
 							content = content + "-infdB";
 
 						};
@@ -120,7 +120,7 @@ VaribankFileMaker {
 										{ampInDB = ampInDB + 20}
 									);
 
-									content = content + (index+1*44100/fftSize).asString;
+									content = content + (index+1*buffer.sampleRate/fftSize).asString;
 									content = content + ampInDB ++ "dB";
 								};
 								content = content + "\n";
