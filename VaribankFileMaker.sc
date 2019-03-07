@@ -1,184 +1,218 @@
+/*
+VaribankFileMaker:
+
+Analyse a sound file and output a text file compatible with program VariBank of the 'CDP' suite
+
+Usage:
+
+1. loadSoundFile : Select file to analyze throug a dialog
+2. writeParameterFile : Analyse the file and write parameters for analysis in text file.
+3. createFilteredSoundFile : Create sound file by invoking Varibank through command line (needs a local CDP installation)
+*/
+
 VaribankFileMaker {
-	var pathName1, pathName2, pathName3, pathName4;
-	var buffer;
-
-
+	var sampleFilterModelFilePath, filterBankParamFilePath, sampleInputFilePath, sampleOutputFilePath;
+	var buffer, fftBuffer, file, fftSynth;
 
 	loadSoundFile {
 		FileDialog (
 			{ arg path;
-				pathName1 = PathName(path[0]);
+				sampleFilterModelFilePath = PathName(path[0]);
 
-				if (pathName1.extension == "wav",
+				if (sampleFilterModelFilePath.extension == "wav",
 					{
-						if (buffer.notNil,
-							{buffer.clear}
-						);
-						buffer = Buffer.read(Server.default, pathName1.fullPath);
-
-						postln("SoundFile" + pathName1.fileName + "was selected (to filter another with)");
+						this.loadSampleBuffer;
 					},
 					{
-						pathName1 = nil;
+						sampleFilterModelFilePath = nil;
 						postln( "Please select a soundfile next time" );
-
 					}
 				);
 			},
 			{
 				postln("Made no selection");
-				if (pathName1.notNil && buffer.notNil,
-					{postln(", but" + pathName1.fileName + "is still loaded")}
+				if (sampleFilterModelFilePath.notNil && buffer.notNil,
+					{postln(", but" + sampleFilterModelFilePath.fileName + "is still loaded")}
 				);
 			}
 		)
 	}
 
-	writeTextFile { arg offset=0.0, name="variTextFile";
-		if (pathName1.notNil,
+
+
+	loadSampleBuffer {
+
+		buffer !? { buffer.clear };
+		buffer = Buffer.read(Server.default, sampleFilterModelFilePath.fullPath);
+		postln("SoundFile" + sampleFilterModelFilePath.fileName + "was selected (to filter another with)");
+	}
+
+
+
+	makefilterBankParamFilePath { arg fileName;
+
+		filterBankParamFilePath = PathName.new(sampleFilterModelFilePath.pathOnly ++ fileName ++ ".txt");
+		if (File.exists(filterBankParamFilePath.fullPath), {File.delete(filterBankParamFilePath.fullPath)});
+		file = File(filterBankParamFilePath.fullPath, "w");
+	}
+
+
+
+	runFFTSynth {
+
+		fftBuffer = Buffer.alloc(Server.default, 2048, 1);
+
+		fftSynth = {
+			var input, chain;
+			input = PlayBuf.ar(buffer.numChannels, buffer, BufRateScale.kr(buffer));
+			chain = FFT(fftBuffer, input, hop: 1/4, wintype: 0, winsize: (fftBuffer.numFrames/2).asInt);
+			//chain = PV_MagSquared(chain);
+		}.play;
+	}
+
+
+
+	get1AnalysisFrameContent {arg maxFreqNum, scalingCoef;
+
+		var content = "";
+
+		fftBuffer.loadToFloatArray
+		(
+			action:
+			{arg currentFrame;
+				var z, x;
+				var magnitudes;
+
+				z = currentFrame.clump(2).flop;
+				z = [Signal.newFrom(z[0]), Signal.newFrom(z[1])];
+				x = Complex(z[0], z[1]);
+				magnitudes = x.magnitude[1..maxFreqNum]/scalingCoef;
+
+				magnitudes.do
+				{arg item, index;
+					var ampInDB = item.ampdb;
+					var threshold = -60;
+
+					if ( ampInDB < threshold,
+						{ampInDB = -inf},
+						{ampInDB = ampInDB + 20}
+					);
+
+					content = content + (index+1*buffer.sampleRate/fftBuffer.numFrames).asString;
+					content = content + ampInDB ++ "dB";
+				};
+
+				^content;
+			}
+		);
+	}
+
+
+
+	runWriteRoutine{arg initialTimeStamp;
+		{
+			var content = "";
+			var timeStamp = initialTimeStamp;
+			var fftSize = fftBuffer.numFrames;
+			var fftSizeOver2 = (fftSize/2).asInt;
+			var numFreqs = fftSizeOver2-1;
+			var rate = 2*fftSize/buffer.sampleRate;
+			var numFrames = ((buffer.numFrames / buffer.sampleRate) / rate).ceil.asInt;
+
+			"Please, bear with me...".postln;
+
+			if (timeStamp != 0.0,
+				{
+					content = "0.0";
+
+					numFreqs.do
+					{
+						arg i;
+						content = content + (i+1*buffer.sampleRate/fftSize).asString;
+						content = content + "-infdB";
+
+					};
+					file.write(content);
+					content = "\n";
+				}
+			);
+
+			numFrames.do
+			{
+				content =  content ++ timeStamp;
+				content = content + this.get1AnalysisFrameContent(numFreqs, fftSizeOver2);
+				content = content + "\n";
+				file.write(content);
+				content ="\n";
+				timeStamp = timeStamp + rate;
+			};
+
+			//wait a little more
+			0.1.wait;
+			file.close;
+			fftSynth.free;
+			fftBuffer.free;
+
+			"See? I'm done!".postln;
+		}.fork;
+	}
+
+
+
+	writeParameterFile { arg offset=0.0, name="variTextFile";
+		if (sampleFilterModelFilePath.notNil,
 			{
 				var fileName;
-				var file;
-				var fftSize = 2048;
-				var fftSizeOver2 = (fftSize/2).asInt;
-				var hop = 1/4;
-				var rate = 2*fftSize/buffer.sampleRate;
-				var step = offset;
-				var content = "";
-				var magnitudes;
-				var duration = buffer.numFrames / buffer.sampleRate;
-				var iterations = (duration / rate).ceil.asInt;
-				var fftBuffer;
-				var theFFT;
-				var theWriter;
 
 				if (name == "variTextFile",
-					{fileName = pathName1.fileNameWithoutExtension},
+					{fileName = sampleFilterModelFilePath.fileNameWithoutExtension},
 					{fileName = name}
 				);
 
-				pathName2 = PathName.new(pathName1.pathOnly ++ fileName ++ ".txt");
-				if (File.exists(pathName2.fullPath), {File.delete(pathName2.fullPath)});
-				file = File(pathName2.fullPath, "w");
+				this.makefilterBankParamFilePath(fileName);
 
-				if (offset != 0.0,
-					{
-						content = "0.0";
+				this.runFFTSynth;
 
-						(fftSizeOver2-1).do
-						{
-							arg i;
-							content = content + (i+1*buffer.sampleRate/fftSize).asString;
-							content = content + "-infdB";
-
-						};
-						file.write(content);
-						content = "\n";
-					}
-				);
-
-				fftBuffer = Buffer.alloc(Server.default,fftSize,1);
-
-				theFFT = { var input, chain;
-					input = PlayBuf.ar(buffer.numChannels, buffer, BufRateScale.kr(buffer));
-					chain = FFT(fftBuffer, input, hop: hop, wintype: 0, winsize: fftSizeOver2);
-					//chain = PV_MagSquared(chain);
-				}.play;
-
-				theWriter = Routine {
-
-					"Please, bare with me...".postln;
-
-					iterations.do
-					{
-						arg i;
-						fftBuffer.loadToFloatArray
-						(
-							action:
-							{
-								arg array;
-								var z, x, m;
-
-								content =  content ++ step;
-								z = array.clump(2).flop;
-
-								z = [Signal.newFrom(z[0]), Signal.newFrom(z[1])];
-								x = Complex(z[0], z[1]);
-
-								//~magnitudes = x.magnitude * x.magnitude;
-
-								magnitudes = x.magnitude[1..fftSizeOver2-1]/fftSizeOver2;
-
-								magnitudes.do
-								{
-									arg item, index;
-									var ampInDB = item.ampdb;
-									var threshold = -60;
-
-									if ( ampInDB < threshold,
-										{ampInDB = -inf},
-										{ampInDB = ampInDB + 20}
-									);
-
-									content = content + (index+1*buffer.sampleRate/fftSize).asString;
-									content = content + ampInDB ++ "dB";
-								};
-								content = content + "\n";
-								file.write(content);
-								content ="\n";
-
-								//{ ~magnitudes.plot('Initial', Rect(200, 600-(200*i), 700, 200)) }.defer
-							}
-						);
-						step = step + rate;
-					};
-
-					//wait a little more
-					0.1.wait;
-					file.close;
-					theFFT.free;
-					fftBuffer.free;
-
-					"See? I'm done!".postln;
-
-				}.play;
+				this.runWriteRoutine(offset);
 			},
 			{ postln("Please, select a soundfile to be analyzed")}
 		);
 	}
 
+
+
 	createFilteredSoundFile { arg quality=5, volume=1, name="variFiltered";
-		if (pathName2.notNil,
+		if (filterBankParamFilePath.notNil,
 			{
 				FileDialog (
 					{ arg path;
-						pathName3 = PathName(path[0]);
+						sampleInputFilePath = PathName(path[0]);
 
-						if (pathName3.extension == "wav",
+						if (sampleInputFilePath.extension == "wav",
 							{
 								var fileName;
-								var command = "cd" + pathName3.pathOnly.escapeChar($ ) ++ "; filter varibank 1" + pathName3.fileName;
+								var command = "cd" + sampleInputFilePath.pathOnly.escapeChar($ ) ++ "; filter varibank 1" + sampleInputFilePath.fileName;
 
-								postln(pathName3.fileName + "was selected (to be filtered)");
+								postln(sampleInputFilePath.fileName + "was selected (to be filtered)");
 
 								if (name == "variFiltered",
-									{fileName = pathName3.fileNameWithoutExtension ++ "_filtered"},
+									{fileName = sampleInputFilePath.fileNameWithoutExtension ++ "_filtered"},
 									{fileName = name}
 								);
 
-								pathName4 = PathName.new(pathName3.pathOnly ++ fileName ++ ".wav");
-								if (File.exists(pathName4.fullPath), {File.delete(pathName4.fullPath)});
+								sampleOutputFilePath = PathName.new(sampleInputFilePath.pathOnly ++ fileName ++ ".wav");
+								if (File.exists(sampleOutputFilePath.fullPath), {File.delete(sampleOutputFilePath.fullPath)});
 
-								command = command + pathName4.fileName + pathName2.fullPath.escapeChar($ ) + quality + volume;
+								command = command + sampleOutputFilePath.fileName + filterBankParamFilePath.fullPath.escapeChar($ ) + quality + volume;
 								command.runInTerminal;
 							},
-							{pathName3 = nil; postln( "Please select a (.wav) soundfile next time" )}
+							{sampleInputFilePath = nil; postln( "Please select a (.wav) soundfile next time" )}
 						);
 					},
 					{
 						postln("Made no selection");
-						if (pathName3.notNil,
-							{postln("," + pathName3.fileName + "is your previously filtered sound")}
+						if (sampleInputFilePath.notNil,
+							{postln("," + sampleInputFilePath.fileName + "is your previously filtered sound")}
 						);
 					}
 				)
@@ -186,4 +220,5 @@ VaribankFileMaker {
 			{ postln("Please, first analyze a sound")}
 		);
 	}
+
 }

@@ -5,7 +5,7 @@ a = VaribankFileMaker.new;
 a.loadSoundFile;
 
 //execute the analysis and write the CDP compatible text file
-a.writeTextFile;
+a.writeParameterFile;
 
 //(optional step-needs a local CDP installation)
 //choose a sound to be filtered by the analysed sound,
