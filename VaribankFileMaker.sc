@@ -49,7 +49,7 @@ VaribankFileMaker {
 
 
 
-	makefilterBankParamFilePath { arg fileName;
+	makefilterBankParamFile { arg fileName;
 
 		filterBankParamFilePath = PathName.new(sampleFilterModelFilePath.pathOnly ++ fileName ++ ".txt");
 		if (File.exists(filterBankParamFilePath.fullPath), {File.delete(filterBankParamFilePath.fullPath)});
@@ -169,7 +169,7 @@ VaribankFileMaker {
 					{fileName = name}
 				);
 
-				this.makefilterBankParamFilePath(fileName);
+				this.makefilterBankParamFile(fileName);
 
 				this.runFFTSynth;
 
